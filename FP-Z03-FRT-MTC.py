@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore")s
 
 # ════════════════════════════════════════════════════
 # CONFIGURACIÓN GLOBAL
@@ -53,7 +53,6 @@ def sanitize_key(s):
 
 st.markdown("""
 <style>
-    /* Header principal */
     .main-header {
         background: linear-gradient(135deg, #0A3D62 0%, #1A6B3C 100%);
         padding: 1.5rem 2rem;
@@ -64,7 +63,6 @@ st.markdown("""
     .main-header h1 { margin: 0; font-size: 1.8rem; font-weight: 700; }
     .main-header p  { margin: 0.3rem 0 0; opacity: 0.8; font-size: 0.9rem; }
 
-    /* KPI cards */
     .kpi-card {
         background: white;
         border-radius: 10px;
@@ -77,17 +75,14 @@ st.markdown("""
     .kpi-value { font-size: 1.8rem; font-weight: 700; color: #1C2B3A; line-height: 1.1; }
     .kpi-sub   { font-size: 0.72rem; color: #7A8899; margin-top: 2px; }
 
-    /* Sección separadora */
     .section-title {
         font-size: 1rem; font-weight: 700; color: #0A3D62;
         border-bottom: 2px solid #1A6B3C;
         padding-bottom: 0.3rem; margin: 1.2rem 0 0.8rem;
     }
 
-    /* Sidebar */
     [data-testid="stSidebar"] { background: #F0F4F8; }
 
-    /* Upload zone */
     .upload-zone {
         border: 2px dashed #1b60a7; border-radius: 10px;
         padding: 2rem; text-align: center; background: #f0f7ff;
@@ -116,62 +111,52 @@ def _coerce_bytes_to_str(x):
     return x
 
 def smart_numeric_convert_series(s: pd.Series) -> pd.Series:
-    if s.dtype.kind in 'iufc':
-        return s
-    s2 = s.astype(object).map(lambda x: _coerce_bytes_to_str(x) if not pd.isna(x) else x)
-    nonnull = s2.dropna().astype(str)
-    if nonnull.empty:
-        return pd.to_numeric(s2, errors='coerce')
+
+    if pd.api.types.is_numeric_dtype(s):
+        return pd.to_numeric(s, errors="coerce")
+
+    s_obj = s.astype("object").map(
+        lambda x: _coerce_bytes_to_str(x) if not pd.isna(x) else np.nan
+    )
 
     def conv_token(x):
-        if x is None or (isinstance(x, float) and np.isnan(x)):
+        if x is None:
             return np.nan
+        if isinstance(x, float) and np.isnan(x):
+            return np.nan
+        if isinstance(x, (int, float, np.integer, np.floating)):
+            return float(x)
+
         t = str(x).strip()
-        if t == '':
-            return np.nan
-        # Brutal cleaning: remove non-numeric except separators and minus
-        t = t.replace('\xa0', '').replace(' ', '')
-        # handle European and US formats aggressively
-        if re.match(r'^\d{1,3}(\.\d{3})+,\d+$', t):
-            t2 = t.replace('.', '').replace(',', '.')
-            try:
-                return float(t2)
-            except:
-                return np.nan
-        if re.match(r'^\d+,\d+$', t) and '.' not in t:
-            return float(t.replace(',', '.'))
-        if re.match(r'^\d{1,3}(,\d{3})+$', t) and '.' not in t:
-            return float(t.replace(',', ''))
-        if re.match(r'^\d+\.\d+$', t) and ',' not in t:
-            try:
-                return float(t)
-            except:
-                return np.nan
-        t_only = re.sub(r'[^\d\.,\-]', '', t)
-        if t_only == '':
-            return np.nan
-        # if both separators present, try to infer thousands vs decimal
-        if ',' in t_only and '.' in t_only:
-            if t_only.find('.') < t_only.find(','):
-                t2 = t_only.replace('.', '').replace(',', '.')
-                try:
-                    return float(t2)
-                except:
-                    return np.nan
-        if ',' in t_only:
-            try:
-                return float(t_only.replace(',', '.'))
-            except:
-                return np.nan
-        try:
-            return float(t_only)
-        except:
+        if t == "":
             return np.nan
 
-    converted = nonnull.map(conv_token)
-    result = s2.copy()
-    result.loc[converted.index] = converted
-    return pd.to_numeric(result, errors='coerce')
+        t = t.replace("\xa0", "").replace(" ", "")
+        t = re.sub(r"(?i)(kg|ha|ppm|cmol\(\+\)/kg|cmol/kg|%|mg/kg)", "", t)
+        t = re.sub(r"[^0-9,\.\-]", "", t)
+
+        if t in {"", "-", ".", ",", "-.", "-,"}:
+            return np.nan
+
+        if "," in t and "." in t:
+            if t.rfind(",") > t.rfind("."):
+                t = t.replace(".", "").replace(",", ".")
+            else:
+                t = t.replace(",", "")
+        elif "," in t:
+            if t.count(",") == 1:
+                t = t.replace(",", ".")
+            else:
+                t = t.replace(",", "")
+
+        try:
+            return float(t)
+        except Exception:
+            return np.nan
+
+    values = [conv_token(x) for x in s_obj]
+    return pd.Series(values, index=s.index, name=s.name, dtype="float64")
+
 
 def detect_header_row(df_preview: pd.DataFrame, n_top: int = 20) -> Tuple[int, List[str]]:
     rows = min(n_top, len(df_preview))
@@ -190,7 +175,6 @@ def detect_header_row(df_preview: pd.DataFrame, n_top: int = 20) -> Tuple[int, L
                 if tok in cell:
                     tok_matches += 1
                     break
-        # make scoring more "brutal": prefer rows with many expected tokens decisively
         score = tok_matches * 200 + non_empty
         if non_empty <= 2 and any(len(c) > 30 for c in row_lower):
             score -= 100
@@ -198,7 +182,6 @@ def detect_header_row(df_preview: pd.DataFrame, n_top: int = 20) -> Tuple[int, L
             best_score = score
             best_row = i
             best_values = row_vals
-    # If nothing strong found, fallback to first sufficiently populated row
     if best_score < 2:
         best_row = 0
         best_values = df_preview.iloc[0].astype(object).astype(str).fillna('').tolist()
@@ -213,48 +196,45 @@ def detect_header_row(df_preview: pd.DataFrame, n_top: int = 20) -> Tuple[int, L
 @st.cache_data(show_spinner=False)
 def read_master_file_autodetect(uploaded, sample_rows: int = 30) -> Tuple[pd.DataFrame, List[str]]:
     name = getattr(uploaded, "name", "") if hasattr(uploaded, "name") else str(uploaded)
-    # BRUTAL MODE: only accept Excel files. If not Excel, raise early.
     is_excel = isinstance(name, str) and name.lower().endswith((".xls", ".xlsx"))
     if not is_excel:
-        raise ValueError("Este loader acepta únicamente archivos Excel (.xls, .xlsx). Sube un archivo .xlsx")
+        raise ValueError("Este loader acepta únicamente archivos Excel (.xls, .xlsx).")
     if hasattr(uploaded, "read"):
         content = uploaded.read()
         try:
             uploaded.seek(0)
-        except:
+        except Exception:
             pass
     else:
         with open(str(uploaded), "rb") as f:
             content = f.read()
-    # Only Excel path (no CSV fallback)
+
     xls = pd.ExcelFile(io.BytesIO(content))
-    # prefer sheets that look like applications
     sheet_choice = None
     for s in xls.sheet_names:
         if re.search(r'aplic|aplica|aplicaciones|fertiliz|apli', s.lower()):
             sheet_choice = s
             break
     if sheet_choice is None:
-        # If no obvious sheet, pick the first but be explicit
         sheet_choice = xls.sheet_names[0]
-    # Read sample to detect header
+
     df0 = pd.read_excel(io.BytesIO(content), sheet_name=sheet_choice, header=None, dtype=object)
-    header_row, header_values = detect_header_row(df0, n_top=min(sample_rows, len(df0)))
-    # If header seems off (very short), be brutal and search small window for best candidate
+    header_row, _ = detect_header_row(df0, n_top=min(sample_rows, len(df0)))
     if header_row is None or header_row < 0:
         header_row = 0
+
     df_full = pd.read_excel(io.BytesIO(content), sheet_name=sheet_choice, header=None, dtype=object)
     if header_row >= len(df_full):
         header_row = 0
+
     raw_header = df_full.iloc[header_row].astype(object).astype(str).fillna('').tolist()
-    df_data = df_full.iloc[header_row + 1 :].copy().reset_index(drop=True)
-    # sanitize duplicate empty column names to avoid collisions
+    df_data = df_full.iloc[header_row + 1:].copy().reset_index(drop=True)
+
     cleaned_header = []
     seen = {}
     for h in raw_header:
         h = "" if h is None else str(h).strip()
         if h == "":
-            # generate a placeholder to avoid duplicate empty names
             idx = seen.get("", 0) + 1
             seen[""] = idx
             h = f"unnamed_col_{idx}"
@@ -264,54 +244,64 @@ def read_master_file_autodetect(uploaded, sample_rows: int = 30) -> Tuple[pd.Dat
         else:
             seen[h] = 1
         cleaned_header.append(h)
+
     df_data.columns = cleaned_header
-    original_columns_display = raw_header
-    return df_data, original_columns_display
+    return df_data, raw_header
 
 def clean_dataframe_before_display(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
     d.columns = ["" if c is None else str(c) for c in d.columns]
-    # drop empty columns (brutal: drop columns with >95% NA)
-    for c in list(d.columns):
-        try:
-            all_na = d[c].isna().all()
-        except Exception:
-            try:
-                all_na = d[c].astype(object).isna().all()
-            except Exception:
-                all_na = False
-        non_null = d[c].dropna().shape[0]
-        total = max(1, d.shape[0])
-        if all_na or (non_null/total) < 0.05 or (str(c).lower().startswith("unnamed") and non_null == 0):
-            try:
-                d.drop(columns=[c], inplace=True)
-            except Exception:
-                pass
-    # object columns: convert bytes -> str, coerce mixed types
-    obj_cols = d.select_dtypes(include=["object"]).columns.tolist()
-    for c in obj_cols:
-        sample = d[c].dropna().head(500).tolist()
-        if any(isinstance(v, (bytes, bytearray)) for v in sample):
-            d[c] = d[c].map(_coerce_bytes_to_str)
-        types = set(type(v) for v in sample)
-        if len(types) > 3:
-            d[c] = d[c].astype(str)
-    # try smart numeric conversion on columns that look numeric-ish
+
+    cols_to_drop = []
     for c in d.columns:
-        if d[c].dtype == object:
-            svals = d[c].dropna().astype(str)
-            if svals.shape[0] > 0:
-                digit_like = svals.str.contains(r'[\d]+[,\.\d]*').sum()
-                if digit_like / max(1, svals.shape[0]) > 0.20:
-                    # be more aggressive converting strings to numbers
-                    d[c] = smart_numeric_convert_series(d[c])
-    # Trim strings aggressively
-    for c in d.select_dtypes(include=["object"]).columns:
         try:
-            d[c] = d[c].astype(str).str.strip().replace({"": None})
+            non_null = d[c].notna().sum()
+            total = max(len(d), 1)
+            if non_null == 0:
+                cols_to_drop.append(c)
+            elif str(c).strip().lower().startswith("unnamed") and non_null / total < 0.05:
+                cols_to_drop.append(c)
         except Exception:
             pass
+    if cols_to_drop:
+        d = d.drop(columns=cols_to_drop, errors="ignore")
+
+    for c in list(d.columns):
+        s = d[c]
+
+        if pd.api.types.is_numeric_dtype(s):
+            d[c] = pd.to_numeric(s, errors="coerce")
+            continue
+
+        try:
+            s_obj = s.astype("object").map(
+                lambda x: _coerce_bytes_to_str(x) if not pd.isna(x) else np.nan
+            )
+        except Exception:
+            continue
+
+        sample = s_obj.dropna().astype(str)
+        if sample.empty:
+            continue
+
+        digit_ratio = sample.str.contains(r"\d", regex=True).mean()
+
+        if digit_ratio > 0.20:
+            num = smart_numeric_convert_series(s_obj)
+            non_null_orig = s_obj.notna().sum()
+            non_null_num  = num.notna().sum()
+            success_ratio = non_null_num / max(non_null_orig, 1)
+
+            if success_ratio >= 0.60:
+                d[c] = num
+            else:
+                # mantener como texto limpio
+                d[c] = s_obj.map(lambda x: x.strip() if isinstance(x, str) else x)
+        else:
+            d[c] = s_obj.map(lambda x: x.strip() if isinstance(x, str) else x)
+
     return d
+
 
 def detect_columns_map(df: pd.DataFrame) -> Dict[str, Optional[str]]:
     cols = list(df.columns)
@@ -322,15 +312,15 @@ def detect_columns_map(df: pd.DataFrame) -> Dict[str, Optional[str]]:
                     return c
         return None
     mapping = {
-        "lote": ["lote","parcela","lot","codigo","id_lote"],
-        "ano": ["año","ano","year"],
-        "siembra": ["siembra","planting"],
+        "lote":     ["lote","parcela","lot","codigo","id_lote"],
+        "ano":      ["año","ano","year"],
+        "siembra":  ["siembra","planting"],
         "material": ["material","producto","product","fertilizante"],
-        "area": ["area","ha","has","area_ha"],
-        "kg_n_ha": ["kg_n/ha","kg_n_ha","kg_n","n_kg_ha"],
-        "kg_p_ha": ["kg_p/ha","kg_p_ha","kg_p","p2o5","p_kg_ha"],
-        "kg_k_ha": ["kg_k/ha","kg_k_ha","kg_k","k_kg_ha"],
-        "ton_mismo": ["ton_ha_mismo","ton_mismo","ton/ha_mismo","toneladas_mismo"],
+        "area":     ["area","ha","has","area_ha"],
+        "kg_n_ha":  ["kg_n/ha","kg_n_ha","kg_n","n_kg_ha"],
+        "kg_p_ha":  ["kg_p/ha","kg_p_ha","kg_p","p2o5","p_kg_ha"],
+        "kg_k_ha":  ["kg_k/ha","kg_k_ha","kg_k","k_kg_ha"],
+        "ton_mismo":["ton_ha_mismo","ton_mismo","ton/ha_mismo","toneladas_mismo"],
         "ton_post": ["ton_ha_posterior","ton_posterior","ton/ha_posterior"],
     }
     detected = {}
@@ -344,9 +334,10 @@ def detect_columns_map(df: pd.DataFrame) -> Dict[str, Optional[str]]:
 
 def compute_row_totals(df: pd.DataFrame, detected: Dict[str, Optional[str]]) -> pd.DataFrame:
     d = df.copy()
+
     def gcol(key):
         c = detected.get(key)
-        return c if (c in d.columns) else None
+        return c if (c and c in d.columns) else None
 
     area_col = gcol("area")
     if area_col is None:
@@ -359,51 +350,48 @@ def compute_row_totals(df: pd.DataFrame, detected: Dict[str, Optional[str]]) -> 
         d[area_col] = pd.to_numeric(d[area_col], errors="coerce")
 
     map_nutrients = {
-        "N": gcol("kg_n_ha") or (next((c for c in d.columns if "kg_n" in str(c).lower()), None)),
-        "P2O5": gcol("kg_p_ha") or (next((c for c in d.columns if "kg_p" in str(c).lower() or "p2o5" in str(c).lower()), None)),
-        "K2O": gcol("kg_k_ha") or (next((c for c in d.columns if "kg_k" in str(c).lower()), None)),
-        "Ca": next((c for c in d.columns if "kg_ca" in str(c).lower() or "ca"==str(c).lower()), None),
-        "Mg": next((c for c in d.columns if "kg_mg" in str(c).lower() or "mg"==str(c).lower()), None),
-        "S": next((c for c in d.columns if "kg_s" in str(c).lower() or "s"==str(c).lower()), None),
-        "B": next((c for c in d.columns if "kg_b" in str(c).lower() or "b"==str(c).lower()), None),
-        "Zn": next((c for c in d.columns if "kg_zn" in str(c).lower() or "zn"==str(c).lower()), None),
+        "N":    gcol("kg_n_ha") or next((c for c in d.columns if "kg_n" in str(c).lower()), None),
+        "P2O5": gcol("kg_p_ha") or next((c for c in d.columns if "kg_p" in str(c).lower() or "p2o5" in str(c).lower()), None),
+        "K2O":  gcol("kg_k_ha") or next((c for c in d.columns if "kg_k" in str(c).lower()), None),
+        "Ca":   next((c for c in d.columns if "kg_ca" in str(c).lower()), None),
+        "Mg":   next((c for c in d.columns if "kg_mg" in str(c).lower()), None),
+        "S":    next((c for c in d.columns if "kg_s"  in str(c).lower()), None),
+        "B":    next((c for c in d.columns if "kg_b"  in str(c).lower()), None),
+        "Zn":   next((c for c in d.columns if "kg_zn" in str(c).lower()), None),
     }
 
     for short, col in map_nutrients.items():
         tot_col = f"{short}_kg_total"
         if col and col in d.columns:
             d[col] = pd.to_numeric(d[col], errors="coerce")
-            if area_col:
-                d[tot_col] = d[col] * d[area_col]
-            else:
-                d[tot_col] = d[col]
+            d[tot_col] = d[col] * d[area_col] if area_col else d[col]
         else:
             d[tot_col] = np.nan
 
     ton_m = gcol("ton_mismo")
     ton_p = gcol("ton_post")
     d["_ton_mismo_kg"] = np.nan
-    d["_ton_post_kg"] = np.nan
-    if ton_m and ton_m in d.columns and area_col:
+    d["_ton_post_kg"]  = np.nan
+    if ton_m and area_col:
         d[ton_m] = pd.to_numeric(d[ton_m], errors="coerce")
         d["_ton_mismo_kg"] = d[ton_m] * d[area_col] * 1000.0
-    if ton_p and ton_p in d.columns and area_col:
+    if ton_p and area_col:
         d[ton_p] = pd.to_numeric(d[ton_p], errors="coerce")
         d["_ton_post_kg"] = d[ton_p] * d[area_col] * 1000.0
 
     nutrient_total_cols = [f"{k}_kg_total" for k in ["N","P2O5","K2O","Ca","Mg","S","B","Zn"]]
+
     def compute_proxy_row(r):
         if pd.notna(r.get("_ton_mismo_kg")) and r.get("_ton_mismo_kg") > 0:
             return r.get("_ton_mismo_kg")
         if pd.notna(r.get("_ton_post_kg")) and r.get("_ton_post_kg") > 0:
             return r.get("_ton_post_kg")
-        s = 0.0; anyv=False
+        s = 0.0; anyv = False
         for c in nutrient_total_cols:
             v = r.get(c)
             if pd.notna(v):
                 try:
-                    s += float(v)
-                    anyv = True
+                    s += float(v); anyv = True
                 except Exception:
                     pass
         if anyv and s > 0:
@@ -423,66 +411,84 @@ def compute_row_totals(df: pd.DataFrame, detected: Dict[str, Optional[str]]) -> 
     for alias in ["lote","ano","material"]:
         c = detected_again.get(alias)
         if c and c in d.columns:
-            std = "Lote" if alias=="lote" else ("Año" if alias=="ano" else "Material")
-            d.rename(columns={c: std}, inplace=True)
+            std = "Lote" if alias == "lote" else ("Año" if alias == "ano" else "Material")
+            if std not in d.columns:
+                d.rename(columns={c: std}, inplace=True)
 
     if "Año" in d.columns:
         d["Año"] = pd.to_numeric(d["Año"], errors="coerce")
 
     return d
 
+
 def plot_treemap_material(df: pd.DataFrame, detected: Dict[str, Optional[str]]):
     if df is None or df.empty:
         return go.Figure()
-    d = clean_dataframe_before_display(df.copy())
+    d = df.copy()
 
     matcol = detected.get("material") if detected.get("material") in d.columns else \
-             (next((c for c in d.columns if "material" in str(c).lower()), None))
+             next((c for c in d.columns if "material" in str(c).lower()), None)
     lotcol = detected.get("lote") if detected.get("lote") in d.columns else \
-             (next((c for c in d.columns if "lote" in str(c).lower() or "parcela" in str(c).lower()), None))
-    group_col = matcol or lotcol or (d.columns[0] if len(d.columns)>0 else None)
+             next((c for c in d.columns if "lote" in str(c).lower() or "parcela" in str(c).lower()), None)
+    group_col = matcol or lotcol or (d.columns[0] if len(d.columns) > 0 else None)
     if group_col is None:
         return go.Figure()
 
     d[group_col] = d[group_col].astype(str).fillna("")
-
     if "applied_mass_proxy_kg" not in d.columns:
         d["applied_mass_proxy_kg"] = 0.0
     d["applied_mass_proxy_kg"] = pd.to_numeric(d["applied_mass_proxy_kg"], errors="coerce").fillna(0.0)
 
-    agg = d.groupby(group_col, dropna=False).agg(mass_kg=("applied_mass_proxy_kg","sum"), records=(group_col,"count")).reset_index().sort_values("mass_kg", ascending=False)
+    agg = (
+        d.groupby(group_col, dropna=False)
+         .agg(mass_kg=("applied_mass_proxy_kg","sum"), records=(group_col,"count"))
+         .reset_index()
+         .sort_values("mass_kg", ascending=False)
+    )
     agg = agg[agg["mass_kg"].fillna(0) > 0]
 
     if agg.empty:
-        fallback = d[group_col].value_counts().reset_index().rename(columns={"index": group_col, group_col:"count"}).head(30)
-        fig_fb = px.bar(fallback, x="count", y=group_col, orientation="h", color_discrete_sequence=[COLORS["primary"]],
-                        title="Frecuencia de materiales (fallback)")
-        fig_fb.update_layout(height=360, margin=dict(t=30,l=0,r=0,b=0))
-        return fig_fb
+        fallback = d[group_col].value_counts().reset_index().head(30)
+        fallback.columns = [group_col, "count"]
+        fig = px.bar(fallback, x="count", y=group_col, orientation="h",
+                     color_discrete_sequence=[COLORS["primary"]],
+                     title="Frecuencia de materiales (fallback)")
+        fig.update_layout(height=360, margin=dict(t=30,l=0,r=0,b=0))
+        return fig
 
     agg[group_col] = agg[group_col].str.replace(r'[\r\n]+',' ', regex=True).str.strip()
     try:
-        labels = agg[group_col].astype(str).tolist()
+        labels  = agg[group_col].astype(str).tolist()
         parents = ["Materiales"] * len(labels)
-        values = agg["mass_kg"].astype(float).tolist()
-        fig = go.Figure(go.Treemap(labels=labels, parents=parents, values=values, textinfo="label+value",
-                                   marker=dict(colors=values, colorscale="Spectral")))
-        fig.update_layout(title=f"Uso (proxy kg) por {group_col}", margin=dict(t=40,l=0,r=0,b=0), height=420)
+        values  = agg["mass_kg"].astype(float).tolist()
+        fig = go.Figure(go.Treemap(
+            labels=labels, parents=parents, values=values,
+            textinfo="label+value",
+            marker=dict(colors=values, colorscale="Spectral")
+        ))
+        fig.update_layout(title=f"Uso (proxy kg) por {group_col}",
+                          margin=dict(t=40,l=0,r=0,b=0), height=420)
         return fig
     except Exception:
-        fig_bar = px.bar(agg.head(30), x="mass_kg", y=group_col, orientation="h", color_discrete_sequence=[COLORS["primary"]],
-                         title=f"Uso (proxy kg) por {group_col} (fallback)")
-        fig_bar.update_layout(height=360, margin=dict(t=30,l=0,r=0,b=0))
-        return fig_bar
+        fig = px.bar(agg.head(30), x="mass_kg", y=group_col, orientation="h",
+                     color_discrete_sequence=[COLORS["primary"]],
+                     title=f"Uso (proxy kg) por {group_col} (fallback)")
+        fig.update_layout(height=360, margin=dict(t=30,l=0,r=0,b=0))
+        return fig
+
 
 def plot_box_nutrients_perha(df: pd.DataFrame):
     traces = []
-    perha_map = {"N":["kg_n/ha","kg_n_ha","kg_n"], "P2O5":["kg_p/ha","kg_p_ha","kg_p","kg_p2o5"], "K2O":["kg_k/ha","kg_k_ha","kg_k"]}
-    cols_lower = {c.lower(): c for c in df.columns}
+    perha_map = {
+        "N":    ["kg_n/ha","kg_n_ha","kg_n"],
+        "P2O5": ["kg_p/ha","kg_p_ha","kg_p","kg_p2o5"],
+        "K2O":  ["kg_k/ha","kg_k_ha","kg_k"],
+    }
+    cols_lower = {str(c).lower(): c for c in df.columns}
     for label, pats in perha_map.items():
         found = None
         for p in pats:
-            for lc,orig in cols_lower.items():
+            for lc, orig in cols_lower.items():
                 if p in lc:
                     found = orig; break
             if found: break
@@ -491,38 +497,53 @@ def plot_box_nutrients_perha(df: pd.DataFrame):
             if not vals.empty:
                 traces.append(go.Box(y=vals, name=f"{label} (kg/ha)", marker_color=COLORS["primary"]))
     fig = go.Figure(data=traces)
-    fig.update_layout(title="Boxplots de nutrientes (kg/ha)", height=340, margin=dict(t=40,l=0,r=0,b=0))
+    fig.update_layout(title="Boxplots de nutrientes (kg/ha)", height=340,
+                      margin=dict(t=40,l=0,r=0,b=0))
     return fig
 
-def plot_top_lotes_by_nutrient(df: pd.DataFrame, detected: Dict[str, Optional[str]], nutrient_short="N", topn=10):
-    col = f"{nutrient_short}_kg_total"
-    lotcol = detected.get("lote") if detected.get("lote") in df.columns else (detected.get("material") if detected.get("material") in df.columns else None)
+
+def plot_top_lotes_by_nutrient(df: pd.DataFrame, detected: Dict[str, Optional[str]],
+                                nutrient_short="N", topn=10):
+    col    = f"{nutrient_short}_kg_total"
+    lotcol = (detected.get("lote")     if detected.get("lote")     in df.columns else None) or \
+             (detected.get("material") if detected.get("material") in df.columns else None)
     if col not in df.columns or lotcol is None:
         return go.Figure()
-    agg = df.groupby(lotcol, dropna=False)[col].sum().reset_index().sort_values(col, ascending=False).head(topn)
-    if agg.empty: return go.Figure()
+    agg = (
+        df.groupby(lotcol, dropna=False)[col]
+          .sum().reset_index()
+          .sort_values(col, ascending=False)
+          .head(topn)
+    )
+    if agg.empty:
+        return go.Figure()
     agg["label"] = agg[lotcol].astype(str)
-    fig = px.bar(agg, x=col, y="label", orientation="h", color_discrete_sequence=[COLORS["primary"]],
+    fig = px.bar(agg, x=col, y="label", orientation="h",
+                 color_discrete_sequence=[COLORS["primary"]],
                  title=f"Top {topn} {lotcol} por {nutrient_short} (kg total)")
     fig.update_layout(height=360, margin=dict(t=40,l=0,r=0,b=0))
     return fig
 
+
 def plot_time_series_by_year(df: pd.DataFrame):
-    cols_lower = {c.lower(): c for c in df.columns}
+    cols_lower = {str(c).lower(): c for c in df.columns}
     ano_col = None
-    for k in ["año","ano","year","Año","AÑO"]:
-        if k in cols_lower: ano_col = cols_lower[k]; break
-    totals = {}
-    for nutrient in ["N","P2O5","K2O"]:
-        c = f"{nutrient}_kg_total"
-        if c in df.columns: totals[c] = "sum"
-    if not totals: return go.Figure()
+    for k in ["año","ano","year"]:
+        if k in cols_lower:
+            ano_col = cols_lower[k]; break
+
+    totals = {f"{n}_kg_total": "sum" for n in ["N","P2O5","K2O"] if f"{n}_kg_total" in df.columns}
+    if not totals:
+        return go.Figure()
+
     d = df.copy()
     if ano_col:
         d[ano_col] = pd.to_numeric(d[ano_col], errors="coerce")
         agg = d.groupby(ano_col).agg(totals).reset_index().sort_values(ano_col)
-        if agg.empty: return go.Figure()
-        fig = px.bar(agg, x=ano_col, y=list(totals.keys()), title="Aplicación anual por nutriente (kg)")
+        if agg.empty:
+            return go.Figure()
+        fig = px.bar(agg, x=ano_col, y=list(totals.keys()),
+                     title="Aplicación anual por nutriente (kg)")
         fig.update_layout(height=420, margin=dict(t=40,l=0,r=0,b=0))
         return fig
     return go.Figure()
@@ -535,17 +556,28 @@ def compute_kpis(df: pd.DataFrame) -> Dict[str, float]:
     kpis = {"total_records": len(df)}
     for nutrient in ["N","P2O5","K2O"]:
         c = f"{nutrient}_kg_total"
-        kpis[f"total_{nutrient}"] = float(pd.to_numeric(df[c], errors="coerce").sum(skipna=True)) if c in df.columns else 0.0
-    kpis["total_applied_mass_proxy_kg"] = float(pd.to_numeric(df["applied_mass_proxy_kg"], errors="coerce").sum(skipna=True)) if "applied_mass_proxy_kg" in df.columns else 0.0
+        kpis[f"total_{nutrient}"] = (
+            float(pd.to_numeric(df[c], errors="coerce").sum(skipna=True))
+            if c in df.columns else 0.0
+        )
+    kpis["total_applied_mass_proxy_kg"] = (
+        float(pd.to_numeric(df["applied_mass_proxy_kg"], errors="coerce").sum(skipna=True))
+        if "applied_mass_proxy_kg" in df.columns else 0.0
+    )
     return kpis
+
 
 def seccion_kpis(df: pd.DataFrame):
     kpis = compute_kpis(df)
-    c1,c2,c3,c4 = st.columns([1,1,1,1])
-    c1.markdown(f'<div class="kpi-card"><div class="kpi-label">N total (kg)</div><div class="kpi-value">{kpis["total_N"]:,.0f}</div></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="kpi-card"><div class="kpi-label">P2O5 total (kg)</div><div class="kpi-value">{kpis["total_P2O5"]:,.0f}</div></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="kpi-card"><div class="kpi-label">K2O total (kg)</div><div class="kpi-value">{kpis["total_K2O"]:,.0f}</div></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="kpi-card"><div class="kpi-label">Masa proxy (kg)</div><div class="kpi-value">{kpis["total_applied_mass_proxy_kg"]:,.0f}</div></div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(f'<div class="kpi-card"><div class="kpi-label">N total (kg)</div>'
+                f'<div class="kpi-value">{kpis["total_N"]:,.0f}</div></div>', unsafe_allow_html=True)
+    c2.markdown(f'<div class="kpi-card"><div class="kpi-label">P₂O₅ total (kg)</div>'
+                f'<div class="kpi-value">{kpis["total_P2O5"]:,.0f}</div></div>', unsafe_allow_html=True)
+    c3.markdown(f'<div class="kpi-card"><div class="kpi-label">K₂O total (kg)</div>'
+                f'<div class="kpi-value">{kpis["total_K2O"]:,.0f}</div></div>', unsafe_allow_html=True)
+    c4.markdown(f'<div class="kpi-card"><div class="kpi-label">Masa proxy (kg)</div>'
+                f'<div class="kpi-value">{kpis["total_applied_mass_proxy_kg"]:,.0f}</div></div>', unsafe_allow_html=True)
 
 def tab_overview(df: pd.DataFrame, detected: Dict[str, Optional[str]]):
     st.markdown("#### Mix de materiales y uso (proxy)")
@@ -554,8 +586,16 @@ def tab_overview(df: pd.DataFrame, detected: Dict[str, Optional[str]]):
     st.markdown("#### Top materiales por proxy de masa")
     mat_col = detected.get("material") if detected.get("material") in df.columns else None
     if mat_col:
-        agg = df.groupby(mat_col, dropna=False).agg(mass_kg=("applied_mass_proxy_kg","sum")).reset_index().sort_values("mass_kg", ascending=False)
-        st.dataframe(agg.head(50).rename(columns={mat_col:"Material","mass_kg":"Proxy_mass_kg"}), use_container_width=True, key="df_top_materials")
+        agg = (
+            df.groupby(mat_col, dropna=False)
+              .agg(mass_kg=("applied_mass_proxy_kg","sum"))
+              .reset_index()
+              .sort_values("mass_kg", ascending=False)
+        )
+        st.dataframe(
+            agg.head(50).rename(columns={mat_col:"Material","mass_kg":"Proxy_mass_kg"}),
+            use_container_width=True, key="df_top_materials"
+        )
     else:
         st.info("No se detectó columna 'Material'.")
 
@@ -564,23 +604,33 @@ def tab_application(df: pd.DataFrame, detected: Dict[str, Optional[str]]):
     st.plotly_chart(plot_box_nutrients_perha(df), use_container_width=True, key="box_nutrients")
 
     st.markdown("#### Top lotes por nutriente (kg total)")
-    col1,col2 = st.columns([2,1])
+    col1, col2 = st.columns([3, 1])
     with col2:
-        topn = st.number_input("Top N", min_value=3, max_value=50, value=10, key="topn_app")
+        topn        = st.number_input("Top N", min_value=3, max_value=50, value=10, key="topn_app")
         nutr_choice = st.selectbox("Nutriente", options=["N","P2O5","K2O"], index=0, key="nutr_choice_app")
-    st.plotly_chart(plot_top_lotes_by_nutrient(df, detected, nutrient_short=nutr_choice, topn=topn),
-                    use_container_width=True, key=sanitize_key(f"top_lotes_{nutr_choice}_{topn}"))
+    with col1:
+        st.plotly_chart(
+            plot_top_lotes_by_nutrient(df, detected, nutrient_short=nutr_choice, topn=topn),
+            use_container_width=True,
+            key=sanitize_key(f"top_lotes_{nutr_choice}_{topn}")
+        )
 
 def tab_temporal(df: pd.DataFrame):
     st.markdown("#### Series temporales (anual)")
     st.plotly_chart(plot_time_series_by_year(df), use_container_width=True, key="time_series_by_year")
 
 def tab_table_export(df: pd.DataFrame):
-    st.markdown("#### Tabla de registros (muestra)")
+    st.markdown("#### Tabla de registros")
     safe = clean_dataframe_before_display(df).head(200)
     st.dataframe(safe, use_container_width=True, height=400, key="table_sample")
     csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Descargar CSV con columnas calculadas", csv, file_name="aplicaciones_fertilizantes_processed.csv", mime="text/csv", key="download_csv")
+    st.download_button(
+        "⬇️ Descargar CSV con columnas calculadas",
+        csv,
+        file_name="aplicaciones_fertilizantes_processed.csv",
+        mime="text/csv",
+        key="download_csv"
+    )
 
 # ════════════════════════════════════════════════════
 # 4. SIDEBAR
@@ -595,7 +645,6 @@ def render_sidebar():
             st.markdown("## 🌴 Dashboard Fertilizantes - FarmPrecision")
 
         st.markdown("---")
-
         st.markdown("### 📂 Cargar datos")
         uploaded = st.file_uploader(
             "Sube tu archivo Excel (.xlsx)",
@@ -606,18 +655,18 @@ def render_sidebar():
         st.markdown("---")
         st.markdown("### ℹ️ Columnas requeridas")
         st.markdown("""
-        | Interno | Variantes aceptadas |
-        |---------|---------------------|
+        | Interno |	Variantes aceptadas |
+        |-------------|---------------------|
         | finca | finca, farm, hacienda |
         | lote | lote, lot, parcela, parcela_cod |
         | ano | ano, año, year |
         | siembra | siembra, año_siembra, planting |
-        | material| material, producto, variedad |
+        | material | material, producto, variedad |
         | area_ha | area_ha, area, ha |
         | kg N/ha | kg_n/ha, kg_n, n_kg_ha |
         | P2O5 | kg_p/ha, kg_p, p2o5 |
         | K2O | kg_k/ha, kg_k, k2o |
-        | ton/ha | ton/ha, ton_ha, toneladas_ha |        
+        | ton/ha | ton/ha, ton_ha, toneladas_ha |
         """)
 
     return uploaded
@@ -628,10 +677,11 @@ def render_sidebar():
 
 def main():
     uploaded = render_sidebar()
-    st.markdown(f"""
+
+    st.markdown("""
     <div class="main-header">
         <h1>🌴 Dashboard Fertilizantes — FarmPrecision</h1>
-        <p>Análisis de Fertilizantes</p>
+        <p>Análisis de insumos y nutrientes aplicados</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -639,16 +689,14 @@ def main():
         st.markdown("""
         <div class="upload-zone">
             <h3>📂 Sube tu archivo Excel para comenzar</h3>
-            <p>usa el botón de la esquina superior derecha para cargar un dataset de prueba.</p>
+            <p>Formatos soportados: <b>.xlsx</b> / <b>.xls</b></p>
         </div>
         """, unsafe_allow_html=True)
         st.stop()
 
     try:
-        with st.spinner("⏳ Leyendo archivo Excel y detectando encabezado (modo brutal)..."):
-            # read_master_file_autodetect will raise if not Excel
+        with st.spinner("⏳ Leyendo archivo y detectando encabezado..."):
             df_raw, original_columns = read_master_file_autodetect(uploaded)
-            # Save the raw content to session_state for faster iterations (brutal convenience)
             try:
                 st.session_state["_last_uploaded_excel_name"] = getattr(uploaded, "name", "uploaded.xlsx")
                 uploaded.seek(0)
@@ -664,18 +712,17 @@ def main():
         st.stop()
 
     df_clean = clean_dataframe_before_display(df_raw)
-
-    detected = detect_columns_map(df_clean)
-
-    df = compute_row_totals(df_clean, detected)
+    detected  = detect_columns_map(df_clean)
+    df        = compute_row_totals(df_clean, detected)
 
     seccion_kpis(df)
+    st.markdown("---")
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "🧾 Overview",
         "📊 Aplicación",
         "📈 Temporal",
-        "📋 Tabla & Export"
+        "📋 Tabla & Export",
     ])
 
     with tab1:
