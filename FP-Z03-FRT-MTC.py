@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
 
-warnings.filterwarnings("ignore")s
+warnings.filterwarnings("ignore")
 
 # ════════════════════════════════════════════════════
 # CONFIGURACIÓN GLOBAL
